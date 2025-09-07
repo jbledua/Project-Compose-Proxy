@@ -1,0 +1,15 @@
+http:
+  routers:
+    mealie:
+      rule: Host(`mealie.example.com`)
+      entryPoints: [websecure]
+      service: mealie-svc
+      tls:
+        certResolver: le
+
+  services:
+    mealie-svc:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: http://127.0.0.1:9000

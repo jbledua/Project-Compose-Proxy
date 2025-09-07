@@ -1,0 +1,26 @@
+# Environment files
+.env
+!.env.example
+
+# Traefik certificates and ACME storage
+letsencrypt/
+*.acme.json
+
+# Dynamic config overrides (keep sample/example only)
+dynamic/*.yml
+!dynamic/*.example.yml
+
+# Docker
+*.log
+docker-compose.override.yml
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.bak
+
+# VS Code / IDE settings
+.vscode/
+.idea/

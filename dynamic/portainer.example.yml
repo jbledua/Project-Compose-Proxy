@@ -1,0 +1,20 @@
+http:
+  serversTransports:
+    skipverify:
+      insecureSkipVerify: true
+
+  routers:
+    portainer:
+      rule: Host(`portainer.example.com`)
+      entryPoints: [websecure]
+      service: portainer-svc
+      tls:
+        certResolver: le
+
+  services:
+    portainer-svc:
+      loadBalancer:
+        passHostHeader: true
+        serversTransport: skipverify
+        servers:
+          - url: https://127.0.0.1:9443
