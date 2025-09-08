@@ -26,9 +26,6 @@ services:
       - le-data:/letsencrypt
       - ${DYNAMIC_DIR}:/dynamic:ro   # <- host path from .env
 
-    labels:
-      - traefik.enable=true
-
 volumes:
   le-data:
     name: ${STACK_NAME}-le-data
