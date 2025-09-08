@@ -23,13 +23,13 @@ services:
 
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ${STACK_NAME}-letsencrypt:/letsencrypt
+      - le-data:/letsencrypt
       - ${DYNAMIC_DIR}:/dynamic:ro   # <- host path from .env
 
     labels:
       - traefik.enable=true
 
 volumes:
-  ${STACK_NAME}-letsencrypt:
-    name: ${STACK_NAME}-letsencrypt
+  le-data:
+    name: ${STACK_NAME}-le-data
     driver: local
