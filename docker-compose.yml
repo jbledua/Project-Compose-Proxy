@@ -1,32 +1,88 @@
-services:
-  proxy-app:
-    image: traefik:latest
-    container_name: ${STACK_NAME}-app
-    network_mode: host
-    restart: unless-stopped
-    command:
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --providers.file.directory=/dynamic
-      - --providers.file.watch=true
-      - --entrypoints.web.address=:${HTTP_PORT:-8080}
-      - --entrypoints.websecure.address=:${HTTPS_PORT:-8443}
-      - --certificatesresolvers.le.acme.email=${LE_EMAIL}
-      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
-      - --certificatesresolvers.le.acme.httpchallenge=true
-      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
-      # - --certificatesresolvers.le.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
-      - --entrypoints.web.http.redirections.entrypoint.to=websecure
-      - --entrypoints.web.http.redirections.entrypoint.scheme=https
-      - --api.dashboard=true
-      - --ping=true
-
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - le-data:/letsencrypt
-      - ${DYNAMIC_DIR}:/dynamic:ro   # <- host path from .env
+networks:
+  proxy:
+    external: true
 
 volumes:
   le-data:
     name: ${STACK_NAME}-le-data
     driver: local
+  ts-state:
+    name: ${STACK_NAME}-ts-state
+    driver: local
+  ts-config:
+    name: ${STACK_NAME}-ts-config
+    driver: local
+
+services:
+  # --- Tailscale (backup / maintenance access) ---
+  proxy-ts:
+    image: tailscale/tailscale:latest
+    container_name: ${STACK_NAME}-ts
+    hostname: ${TS_HOSTNAME}
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_EXTRA_ARGS=--advertise-tags=tag:container --reset
+      # Optional: preload a Serve/Funnel config later by mounting into /config
+      # - TS_SERVE_CONFIG=/config/serve.json
+    volumes:
+      - ts-state:/var/lib/tailscale
+      - ts-config:/config
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped
+    # Expose a tiny health/keepalive port if you like your usual pattern
+    ports:
+      - "${PUBLIC_PORT:-9926}:9000"
+    command: ["tailscaled"]
+
+  # --- Traefik (no WAN ports; DNS-01 via Cloudflare) ---
+  proxy-app:
+    image: traefik:latest
+    container_name: ${STACK_NAME}-app
+    restart: unless-stopped
+    networks:
+      - proxy
+    depends_on:
+      - proxy-ts
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/dynamic
+      - --providers.file.watch=true
+
+      - --entrypoints.web.address=:${HTTP_PORT:-8080}
+      - --entrypoints.websecure.address=:${HTTPS_PORT:-8443}
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+
+      # ACME via DNS-01 (Cloudflare) so no inbound ports are needed
+      - --certificatesresolvers.cf-dns.acme.email=${LE_EMAIL}
+      - --certificatesresolvers.cf-dns.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.cf-dns.acme.dnschallenge=true
+      - --certificatesresolvers.cf-dns.acme.dnschallenge.provider=cloudflare
+
+      - --api.dashboard=true
+      - --ping=true
+    environment:
+      # Cloudflare DNS-01 token: Zone:Read + DNS:Edit on your zone
+      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - le-data:/letsencrypt
+      - ${DYNAMIC_DIR}:/dynamic:ro
+
+  # --- Cloudflare Tunnel (publishes books.ledua.ca -> Traefik) ---
+  proxy-tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: ${STACK_NAME}-tunnel
+    restart: unless-stopped
+    depends_on:
+      - proxy-app
+    networks:
+      - proxy
+    command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN}
+    # Tunnel routes HTTP(S) to Traefik inside the docker network; no host ports
